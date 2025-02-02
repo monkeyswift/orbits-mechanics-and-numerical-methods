@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 use macroquad::logging::info;
-//Need to do all calculations in f64 then typecast to f32 before passing them into macroquad machinery.
+//Might consider doing all my calculations in f64 for more accuracy.
 static GRAVITATIONAL_CONSTANT: f32 = 6.67430e-11;
 #[derive(Clone)]
 struct Object {
@@ -11,19 +11,24 @@ struct Object {
     mass: f32,
     radius: f32,
     color: Color,
-    trail: Vec<(f32, f32)> //for convenience I'm making this with a vector of f32 tuples, but I can typecase the f32s to u16 and store everything in an array instead of a vector
-    //cause the length of the trail will vary with the speed of the object. I'm going to start with a size of 320 as that's double the frame rate, so the line will only be on
-    //screen for two seconds.
+    trail: [(f32, f32); 200] //would be more memory efficient if I used u16s,
+    //but draw_line() requires f32s as parameters. Might make changes in the future
+    //where I typecast u16s to f32s should the need arise.
+}
+
+fn initialize_object(x: f32, y: f32, dx: f32, dy: f32, mass: f32, radius: f32, color: Color) -> (Object) {
+    return Object { x: x, y: y, dx: dx, dy: dy, 
+                    mass: mass, radius: radius,
+                    color: color, trail: [(x, y); 200] };
 }
 
 #[macroquad::main("3BodySim")] //I might want to implement a GUI or maybe put this up as a website with webassembly. Would be nice to be able to choose the time step size
 //and configure multiple different settings for the simulation. Most importantly though I just want to implement the other numerical methods.
 //Maybe have chosen simulations display side by side.
 async fn main() {
-    let planet_one = Object { x: screen_width()/4.0 + screen_width()/2.0, y: screen_height()/2.0, dx: -0.2, dy: -0.15, mass: 1.0, radius: 10.0, color: GREEN, trail: };//initializing
-    // planets like this can be easier if I use some java concepts, will consider later.
-    let planet_two = Object { x: screen_width()/4.0, y: screen_height()/2.0, dx: 0.0, dy: 0.0, mass: 5.972e24, radius: 30.0, color: RED, trail:  };
-    let planet_three = Object { x: screen_width()/2.0, y: screen_height()/4.0 + screen_height()/2.0, dx: 0.0, dy: 0.2, mass: 1.0, radius: 10.0, color: BLUE, trail: };
+    let planet_one = initialize_object(screen_width()/4.0 + screen_width()/2.0, screen_height()/2.0, -0.2, -0.15, 1.0, 10.0, GREEN);
+    let planet_two = initialize_object(screen_width()/4.0, screen_height()/2.0, 0.0, 0.0, 5.972e24, 30.0, RED);
+    let planet_three  = initialize_object(screen_width()/2.0, screen_height()/4.0 + screen_height()/2.0, 0.0, 0.2, 1.0, 10.0, BLUE);
     let mut planet_vector = vec![planet_one, planet_two, planet_three];
     info!("{}, {}", screen_width(), screen_height());
     loop
@@ -50,20 +55,24 @@ fn trail_manager(mut planet_vector: Vec<Object>) -> Vec<Object>
     //eject the first coordinate in trail.
     //add the current coordinates of the planet to trail.
     //loop through the entire list, stopping at the second last element. In this loop draw a line between the element being indexed and the element succeeding it.
+
+    //Note for a later change I might want to make: check for a certain speed before drawing the line to not needlessly expend resources, also consider starting outside of the planet's radius.
     planet_vector = planet_vector.into_iter()
-    .map(|planet|
+    .map(|mut planet|
     {
-        planet.trail/* cant remember the syntax for this */;
-        planet.trail...;
-        for 0..planet.trail.len() - 1
+        planet.trail.rotate_left(1);
+        planet.trail[199] = (planet.x, planet.y);
+        
+        for index in 0..199
         {
-            draw_line();//check syntax
-        }
+            draw_line(planet.trail[index].0, screen_height() - planet.trail[index].1, planet.trail[index + 1].0, screen_height() - planet.trail[index + 1].1, planet.radius/10.0, planet.color);
+        }//subtracted the y coordinate from screen_height above because my origin is at the bottom left, not the top left.
+        return planet;
     }).collect();
     return planet_vector;
 }
 
-fn calculate_forces(planet_vector: Vec<Objects>) -> Vec<Objects>
+fn calculate_forces(mut planet_vector: Vec<Object>) -> Vec<Object>
 {
     for (mut index, mut planet) in planet_vector.clone().into_iter().enumerate() { //see if you can get rid of the .clone()
         index += 1;
@@ -94,6 +103,7 @@ fn calculate_forces(planet_vector: Vec<Objects>) -> Vec<Objects>
             
         }
     }
+    return planet_vector;
 }
 
 //1 pixel = 4e3 meters.
@@ -107,51 +117,23 @@ fn eulers_method_update(mut planet_vector: Vec<Object>) -> Vec<Object>
         .map(|mut planet| {
             planet.y += planet.dy;
             planet.x += planet.dx;
-            draw_circle(planet.x, screen_height() - planet.y, planet.radius, planet.color);
+            draw_circle(planet.x, screen_height() - planet.y, planet.radius, planet.color); // I'm subtracting planet.y from screen_height() because my coordinate system's origin
+            //is at the bottom left of the screen, while macroquad's is at the top left.
 
             return planet;
         }).collect();
     return planet_vector;
 }
 
-fn runge_kutta_update(mut planet_vector: Vec<Object>, order: u8) -> Vec<Object>
+fn rk4_update(mut planet_vector: Vec<Object>, order: u8) -> Vec<Object>
 {
-    let time_step: f64 = 1.0/160.0
-    for (mut index, mut planet) in planet_vector.clone().into_iter().enumerate() {
-        index += 1;
-        if (index > planet_vector.len() - 1)
-        {
-            break;
-        }
-        for i in index..planet_vector.len()
-        {
-            let distance_parameters: [f32; 2] = [planet.x - planet_vector[i].x, planet.y - planet_vector[i].y];
-            let radius = ((distance_parameters[0]).powi(2) + (distance_parameters[1]).powi(2)).sqrt()*4e3;
-            let force = GRAVITATIONAL_CONSTANT * (planet.mass * planet_vector[i].mass)/(radius.powi(2));
-            let mut force_y: f32;
-            let mut force_x: f32;
-            //Can I get rid of a lot of this code by just starting off with components?
-            //that is next on the list cause it would greatly simplify things.
-            match distance_parameters {
-                distance_parameters if (distance_parameters[0] == 0.0 && distance_parameters[1] > 0.0) => {force_y = force; force_x = 0.0;},
-                distance_parameters if (distance_parameters[0] == 0.0 && distance_parameters[1] < 0.0) => {force_y = -force; force_x = 0.0},
-                [..] => {let theta = (distance_parameters[1]).atan2(distance_parameters[0]);
-                    force_y = force * theta.sin();
-                    force_x = force * theta.cos();
-                }
-            }
-            planet_vector[i - 1].dy = planet.dy - force_y/planet_vector[i - 1].mass * time_step * 1.0/4e3;
-            planet_vector[i - 1].dx = planet.dx - force_x/planet_vector[i - 1].mass * time_step * 1.0/4e3;
-            planet_vector[i].dy += force_y/planet_vector[i].mass * time_step * 1.0/4e3;
-            planet_vector[i].dx += force_x/planet_vector[i].mass * time_step * 1.0/4e3;
-            
-        }
-    }
+    planet_vector = calculate_forces(planet_vector);
     planet_vector = planet_vector.into_iter()
         .map(|mut planet| {
             planet.y += planet.dy;
             planet.x += planet.dx;
-            draw_circle(planet.x, screen_height() - planet.y, planet.radius, planet.color);
+            draw_circle(planet.x, screen_height() - planet.y, planet.radius, planet.color); // I'm subtracting planet.y from screen_height() because my coordinate system's origin
+            //is at the bottom left of the screen, while macroquad's is at the top left.
 
             return planet;
         }).collect();
@@ -162,8 +144,6 @@ fn hamiltonian_symplectic_integration()
 {
 
 }
-
-//Check if symplectic integrators exist for the lagrangian formalism.
 
 fn verlet_integration()
 {
