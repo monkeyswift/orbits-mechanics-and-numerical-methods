@@ -2,6 +2,7 @@ use macroquad::prelude::*;
 use macroquad::logging::info;
 //Might consider doing all my calculations in f64 for more accuracy.
 static GRAVITATIONAL_CONSTANT: f32 = 6.67430e-11;
+static STEP_SIZE: f32 = 1.0/160.0;
 #[derive(Clone)]
 struct Object {
     x: f32,
@@ -96,11 +97,10 @@ fn calculate_forces(mut planet_vector: Vec<Object>) -> Vec<Object>
                     force_x = force * theta.cos();
                 }
             }
-            planet_vector[i - 1].dy = planet.dy - force_y/planet_vector[i - 1].mass * 1.0/160.0 * 1.0/4e3;
-            planet_vector[i - 1].dx = planet.dx - force_x/planet_vector[i - 1].mass * 1.0/160.0 * 1.0/4e3;
-            planet_vector[i].dy += force_y/planet_vector[i].mass * 1.0/160.0 * 1.0/4e3;
-            planet_vector[i].dx += force_x/planet_vector[i].mass * 1.0/160.0 * 1.0/4e3;
-            
+            planet_vector[i - 1].dy = planet.dy - force_y/planet_vector[i - 1].mass * STEP_SIZE * 1.0/4e3;
+            planet_vector[i - 1].dx = planet.dx - force_x/planet_vector[i - 1].mass * STEP_SIZE * 1.0/4e3;
+            planet_vector[i].dy += force_y/planet_vector[i].mass * STEP_SIZE * 1.0/4e3;
+            planet_vector[i].dx += force_x/planet_vector[i].mass * STEP_SIZE * 1.0/4e3;
         }
     }
     return planet_vector;
@@ -125,9 +125,48 @@ fn eulers_method_update(mut planet_vector: Vec<Object>) -> Vec<Object>
     return planet_vector;
 }
 
+fn calculate_forces_rk4(mut planet_vector: Vec<Object>) -> (Vec<Object>)
+{
+    for (mut index, mut planet) in planet_vector.clone().into_iter().enumerate() { //see if you can get rid of the .clone()
+        index += 1;
+        if (index > planet_vector.len() - 1)
+        {
+            break;
+        }
+        for i in index..planet_vector.len()
+        {
+            let distance_parameters: [f32; 2] = [planet.x - planet_vector[i].x, planet.y - planet_vector[i].y];
+            let radius = ((distance_parameters[0]).powi(2) + (distance_parameters[1]).powi(2)).sqrt()*4e3;
+            let force = GRAVITATIONAL_CONSTANT * (planet.mass * planet_vector[i].mass)/(radius.powi(2));
+            let force_y: f32;
+            let force_x: f32;
+            
+            match distance_parameters {
+                distance_parameters if (distance_parameters[0] == 0.0 && distance_parameters[1] > 0.0) => {force_y = force; force_x = 0.0;},
+                distance_parameters if (distance_parameters[0] == 0.0 && distance_parameters[1] < 0.0) => {force_y = -force; force_x = 0.0},
+                [..] => {let theta = (distance_parameters[1]).atan2(distance_parameters[0]);
+                    force_y = force * theta.sin();
+                    force_x = force * theta.cos();
+                }
+            }
+            planet_vector[i - 1].dy = planet.dy - force_y/planet_vector[i - 1].mass * STEP_SIZE * 1.0/4e3;
+            planet_vector[i - 1].dx = planet.dx - force_x/planet_vector[i - 1].mass * STEP_SIZE * 1.0/4e3;
+            planet_vector[i].dy += force_y/planet_vector[i].mass * STEP_SIZE * 1.0/4e3;
+            planet_vector[i].dx += force_x/planet_vector[i].mass * STEP_SIZE * 1.0/4e3;
+            
+            
+            let k_one_y = planet_vector[i - 1].dy;
+            let k_one_x = planet_vector[i - 1].dx;
+            
+
+        }
+    }
+    return planet_vector;
+}
+
 fn rk4_update(mut planet_vector: Vec<Object>, order: u8) -> Vec<Object>
 {
-    planet_vector = calculate_forces(planet_vector);
+    planet_vector = calculate_forces_rk4(planet_vector);
     planet_vector = planet_vector.into_iter()
         .map(|mut planet| {
             planet.y += planet.dy;
